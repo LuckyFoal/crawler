@@ -1,5 +1,7 @@
 import time
 import subprocess
+import random
+
 from playwright.sync_api import Playwright, sync_playwright
 
 
@@ -20,7 +22,7 @@ def run(playwright: Playwright) -> None:
         print("Chrome 浏览器启动中...")
 
         # 等待浏览器完全启动
-        time.sleep(10)
+        time.sleep(3)
 
         # 连接到浏览器
         browser = playwright.chromium.connect_over_cdp("http://127.0.0.1:9222")
@@ -38,23 +40,116 @@ def run(playwright: Playwright) -> None:
         else:
             page = context.new_page()
 
-        # 访问京东网站
-        page.goto("https://www.bilibili.com/")
 
-
-
-        # 保持运行以便观察
-        time.sleep(3)
-
-
+        get_goods(page)
 
     except Exception as e:
         print(f"发生错误: {e}")
 
 def get_goods(page):
     page.goto("https://www.jd.com")
-    page.locator('input#key').fill('mac pro')
 
+    # 定义需要依次点击的元素选择器列表
+    click_sequence = [
+        'img.user_avatar_img',  # 点击用户头像
+        'dd#_MYJD_product a:has-text("商品收藏")',  # 点击菜单项（示例）
+    ]
+
+    current_page = page
+
+    for i, selector in enumerate(click_sequence):
+        try:
+            print(f"执行第 {i + 1} 步: 点击 {selector}")
+            # 等待元素出现
+            current_page.wait_for_selector(selector)
+            time.sleep(random.random() * 1)
+            # 监听新页面并点击元素
+            with current_page.context.expect_page() as new_page_info:
+                current_page.locator(selector).click()
+                new_page = new_page_info.value
+                new_page.wait_for_load_state("networkidle")
+                # 更新当前页面为新页面
+                current_page = new_page
+
+        except Exception as e:
+            print(f"第 {i + 1} 步执行出错: {e}")
+            # 继续执行下一步而不是中断
+    # 直接处理商品列表页面
+    process_goods_list(current_page)
+
+
+def process_goods_list(page):
+    """
+    专门处理商品列表页面
+    """
+    try:
+        # 等待商品列表加载
+        page.wait_for_selector('.mf-goods-list')
+
+        # 获取所有商品项
+        goods_items = page.locator('.mf-goods-item')
+        goods_count = goods_items.count()
+
+        print(f"找到 {goods_count} 个商品，开始依次处理...")
+
+        # 依次处理每个商品
+        for i in range(goods_count):
+            try:
+                print(f"\n处理第 {i + 1} 个商品:")
+
+                # 获取当前商品项
+                goods_item = page.locator('.mf-goods-item').nth(i)
+
+                # 获取商品信息
+                goods_id = goods_item.get_attribute('id') or '未知ID'
+                title_elem = goods_item.locator('.p-name a')
+                title = title_elem.get_attribute('title') if title_elem.count() > 0 else '未知标题'
+
+                print(f"商品ID: {goods_id}")
+                print(f"商品标题: {title}")
+
+                # 点击商品（打开新页面）
+                if goods_item.locator('.p-img a').count() > 0:
+                    with page.context.expect_page() as product_page_info:
+                        goods_item.locator('.p-img a').click()
+                        product_page = product_page_info.value
+
+                        print(f"已打开商品详情页: {product_page.url}")
+
+                        buy_item(product_page)
+
+                        # 简单处理商品页面
+                        product_title = product_page.title()
+                        print(f"商品页面标题: {product_title}")
+
+                        # 关闭商品详情页
+                        product_page.close()
+                        print("已关闭商品详情页")
+
+            except Exception as e:
+                print(f"处理第 {i + 1} 个商品时出错: {e}")
+                continue
+
+    except Exception as e:
+        print(f"处理商品列表时出错: {e}")
+
+def buy_item(product_page):
+    # 点击"立即购买"按钮
+    try:
+        # 等待"立即购买"按钮出现
+        product_page.wait_for_selector('#InitTradeUrl')
+
+        # 点击"立即购买"
+        product_page.locator('#InitTradeUrl').click()
+        print("已点击'立即购买'按钮")
+
+        # 等待可能的跳转页面加载
+        product_page.wait_for_load_state("networkidle")
+
+        # 可以在这里添加处理订单页面的逻辑
+        print(f"当前页面URL: {product_page.url}")
+    except Exception as buy_error:
+        print(f"点击'立即购买'时出错: {buy_error}")
 
 
 if __name__ == "__main__":
