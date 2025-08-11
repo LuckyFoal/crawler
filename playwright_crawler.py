@@ -22,7 +22,7 @@ def run(playwright: Playwright) -> None:
         print("Chrome 浏览器启动中...")
 
         # 等待浏览器完全启动
-        time.sleep(3)
+        time.sleep(1)
 
         # 连接到浏览器
         browser = playwright.chromium.connect_over_cdp("http://127.0.0.1:9222")
@@ -46,34 +46,41 @@ def run(playwright: Playwright) -> None:
     except Exception as e:
         print(f"发生错误: {e}")
 
+
 def get_goods(page):
     page.goto("https://www.jd.com")
 
-    # 定义需要依次点击的元素选择器列表
+    # 定义需要依次点击的元素选择器列表，以及是否打开新页面
     click_sequence = [
-        'img.user_avatar_img',  # 点击用户头像
-        'dd#_MYJD_product a:has-text("商品收藏")',  # 点击菜单项（示例）
+        ('img.user_avatar_img', True),  # 点击用户头像，会打开新页面
+        ('dd#_MYJD_product a:has-text("商品收藏")', False),  # 点击菜单项，在当前页面导航
     ]
 
     current_page = page
 
-    for i, selector in enumerate(click_sequence):
+    for i, (selector, opens_new_page) in enumerate(click_sequence):
         try:
             print(f"执行第 {i + 1} 步: 点击 {selector}")
             # 等待元素出现
             current_page.wait_for_selector(selector)
-            time.sleep(random.random() * 1)
-            # 监听新页面并点击元素
-            with current_page.context.expect_page() as new_page_info:
+
+            if opens_new_page:
+                # 监听新页面并点击元素
+                with current_page.context.expect_page() as new_page_info:
+                    current_page.locator(selector).click()
+                    new_page = new_page_info.value
+                    new_page.wait_for_load_state("networkidle")
+                    # 更新当前页面为新页面
+                    current_page = new_page
+            else:
+                # 在当前页面点击并等待加载完成
                 current_page.locator(selector).click()
-                new_page = new_page_info.value
-                new_page.wait_for_load_state("networkidle")
-                # 更新当前页面为新页面
-                current_page = new_page
+                current_page.wait_for_load_state("networkidle")
 
         except Exception as e:
             print(f"第 {i + 1} 步执行出错: {e}")
             # 继续执行下一步而不是中断
+
     # 直接处理商品列表页面
     process_goods_list(current_page)
 
